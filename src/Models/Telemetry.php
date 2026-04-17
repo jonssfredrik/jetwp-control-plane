@@ -32,6 +32,35 @@ final class Telemetry
         return self::mapRow($row);
     }
 
+    /**
+     * @return list<array{id:int,site_id:string,payload:array,received_at:string}>
+     */
+    public static function recentForSite(PDO $db, string $siteId, int $limit = 25): array
+    {
+        if ($siteId === '') {
+            throw new InvalidArgumentException('site_id is required.');
+        }
+
+        $limit = max(1, min($limit, 200));
+        $statement = $db->prepare(
+            'SELECT id, site_id, payload, received_at
+             FROM telemetry
+             WHERE site_id = :site_id
+             ORDER BY received_at DESC, id DESC
+             LIMIT ' . $limit
+        );
+        $statement->execute(['site_id' => $siteId]);
+
+        $items = [];
+        foreach ($statement->fetchAll() as $row) {
+            if (is_array($row)) {
+                $items[] = self::mapRow($row);
+            }
+        }
+
+        return $items;
+    }
+
     public static function create(PDO $db, string $siteId, array $payload): void
     {
         if ($siteId === '') {

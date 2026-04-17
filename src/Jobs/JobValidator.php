@@ -19,8 +19,12 @@ final class JobValidator
         'cache.flush',
         'translations.update',
         'plugin.update',
+        'plugin.rollback',
         'plugin.update_all',
         'core.update',
+        'core.rollback',
+        'theme.update',
+        'theme.rollback',
         'security.integrity',
         'db.optimize',
     ];
@@ -110,17 +114,38 @@ final class JobValidator
             }
         }
 
-        if ($type === 'plugin.update') {
+        if (in_array($type, ['plugin.update', 'theme.update'], true)) {
             $slug = trim((string) ($params['slug'] ?? ''));
             if ($slug === '') {
-                $errors['params'][] = 'plugin.update requires params.slug.';
+                $errors['params'][] = sprintf('%s requires params.slug.', $type);
             } else {
                 $normalized['slug'] = $slug;
             }
         }
 
-        if ($type === 'core.update') {
+        if (in_array($type, ['plugin.rollback', 'theme.rollback'], true)) {
+            $slug = trim((string) ($params['slug'] ?? ''));
             $version = trim((string) ($params['version'] ?? ''));
+
+            if ($slug === '') {
+                $errors['params'][] = sprintf('%s requires params.slug.', $type);
+            } else {
+                $normalized['slug'] = $slug;
+            }
+
+            if ($version === '') {
+                $errors['params'][] = sprintf('%s requires params.version.', $type);
+            } else {
+                $normalized['version'] = $version;
+            }
+        }
+
+        if (in_array($type, ['core.update', 'core.rollback'], true)) {
+            $version = trim((string) ($params['version'] ?? ''));
+            if ($type === 'core.rollback' && $version === '') {
+                $errors['params'][] = 'core.rollback requires params.version.';
+            }
+
             if ($version !== '') {
                 $normalized['version'] = $version;
             }

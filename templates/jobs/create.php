@@ -74,7 +74,7 @@ require __DIR__ . '/../_chrome.php';
             <label class="field" for="params_json">Params JSON object</label>
             <textarea id="params_json" name="params_json" spellcheck="false"><?= htmlspecialchars((string) ($old['params_json'] ?? '{}')) ?></textarea>
             <div class="hint">
-                Examples: <code>{"slug":"woocommerce"}</code> for <code>plugin.update</code>, <code>{}</code> for <code>cache.flush</code> or <code>translations.update</code>, optional <code>{"version":"6.7.2"}</code> for <code>core.update</code>.
+                Examples: <code>{"slug":"woocommerce"}</code> for <code>plugin.update</code> or <code>theme.update</code>, <code>{"slug":"woocommerce","version":"9.0.0"}</code> for <code>plugin.rollback</code>, <code>{}</code> for <code>cache.flush</code>, optional <code>{"version":"6.7.2"}</code> for <code>core.update</code> or required for <code>core.rollback</code>.
             </div>
         </div>
 

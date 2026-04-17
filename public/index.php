@@ -15,6 +15,7 @@ use JetWP\Control\Models\Server;
 use JetWP\Control\Models\Site;
 use JetWP\Control\Models\Telemetry;
 use JetWP\Control\Models\User;
+use JetWP\Control\Services\SiteInventoryService;
 
 $app = require dirname(__DIR__) . '/bootstrap.php';
 
@@ -34,6 +35,7 @@ $render = static function (string $template, array $data = []) use ($config): vo
     require JETWP_CONTROL_ROOT . '/templates/' . $template . '.php';
 };
 $authorization = new Authorization();
+$siteInventoryService = new SiteInventoryService($db);
 
 $agentApi = new AgentApi($db, $secrets, $activityLog);
 if ($agentApi->handles($path)) {
@@ -164,17 +166,148 @@ if ($method === 'GET' && preg_match('#^/dashboard/sites/([a-f0-9-]{36})$#i', $pa
         return;
     }
 
+    $inventory = $siteInventoryService->snapshotForSite($site);
+
     $render('sites/show', [
         'csrf' => $csrf,
         'user' => $user,
         'site' => $site,
         'server' => Server::findById($db, $site->serverId),
-        'latestTelemetry' => Telemetry::latestForSite($db, $site->id),
+        'latestTelemetry' => $inventory['latest_telemetry'],
+        'coreInventory' => $inventory['core'],
+        'pluginInventory' => $inventory['plugins'],
+        'themeInventory' => $inventory['themes'],
+        'inventorySummary' => $inventory['summary'],
         'recentJobs' => Job::list($db, ['site_id' => $site->id], 10),
         'agentActivity' => $activityLog?->recentForSite($site->id, 50, 'agent.') ?? [],
         'heartbeatThresholdMinutes' => (int) $config->get('alerts.heartbeat_missed_minutes', 30),
+        'flash' => pull_flash('flash'),
     ]);
     return;
+}
+
+if ($method === 'POST' && preg_match('#^/dashboard/sites/([a-f0-9-]{36})/actions$#i', $path, $matches) === 1) {
+    $authorization->ensureJobsAccess($user);
+    if (!$csrf->validate($_POST['_token'] ?? null)) {
+        http_response_code(419);
+        echo 'Invalid CSRF token.';
+        return;
+    }
+
+    $site = Site::findById($db, strtolower($matches[1]));
+    if (!$site instanceof Site) {
+        http_response_code(404);
+        echo 'Site not found.';
+        return;
+    }
+
+    $inventory = $siteInventoryService->snapshotForSite($site);
+    $actionType = trim((string) ($_POST['action_type'] ?? ''));
+    $controller = new CreateJobController(new JobValidator($db), new JobFactory($db));
+    $createdJobs = [];
+    $skipped = [];
+
+    try {
+        $authorization->ensureJobTypeAllowed($user, $actionType);
+
+        if ($actionType === 'core.update') {
+            $params = [];
+            if (($inventory['core']['available_update'] ?? null) !== null) {
+                $params['version'] = $inventory['core']['available_update'];
+            }
+
+            $job = $controller->handle([
+                'site_id' => $site->id,
+                'type' => 'core.update',
+                'priority' => 5,
+                'params' => $params,
+            ]);
+            $createdJobs[] = $job;
+        } elseif ($actionType === 'core.rollback') {
+            $rollbackVersion = $inventory['core']['rollback_version'] ?? null;
+            if (!is_string($rollbackVersion) || trim($rollbackVersion) === '') {
+                throw new InvalidArgumentException('No rollback version is available for WordPress core on this site yet.');
+            }
+
+            $job = $controller->handle([
+                'site_id' => $site->id,
+                'type' => 'core.rollback',
+                'priority' => 5,
+                'params' => ['version' => $rollbackVersion],
+            ]);
+            $createdJobs[] = $job;
+        } elseif (in_array($actionType, ['plugin.update', 'plugin.rollback', 'theme.update', 'theme.rollback'], true)) {
+            $selectedSlugs = normalize_selected_slugs($_POST['slugs'] ?? []);
+            if ($selectedSlugs === []) {
+                throw new InvalidArgumentException('Select at least one item before running a bulk or row action.');
+            }
+
+            $items = str_starts_with($actionType, 'plugin.')
+                ? index_inventory_by_slug($inventory['plugins'])
+                : index_inventory_by_slug($inventory['themes']);
+
+            foreach ($selectedSlugs as $slug) {
+                if (!isset($items[$slug])) {
+                    $skipped[] = $slug . ' (not present in current telemetry)';
+                    continue;
+                }
+
+                $params = ['slug' => $slug];
+                if (str_ends_with($actionType, '.rollback')) {
+                    $rollbackVersion = $items[$slug]['rollback_version'] ?? null;
+                    if (!is_string($rollbackVersion) || trim($rollbackVersion) === '') {
+                        $skipped[] = $slug . ' (no rollback history)';
+                        continue;
+                    }
+
+                    $params['version'] = $rollbackVersion;
+                } elseif (($items[$slug]['update_available'] ?? null) === null) {
+                    $skipped[] = $slug . ' (no update available)';
+                    continue;
+                }
+
+                $createdJobs[] = $controller->handle([
+                    'site_id' => $site->id,
+                    'type' => $actionType,
+                    'priority' => 5,
+                    'params' => $params,
+                ]);
+            }
+        } else {
+            throw new InvalidArgumentException('Requested site action is not supported.');
+        }
+    } catch (AuthorizationException | JobValidationException | InvalidArgumentException $exception) {
+        push_flash('flash', ['type' => 'error', 'message' => $exception->getMessage()]);
+        header('Location: /dashboard/sites/' . urlencode($site->id));
+        exit;
+    }
+
+    foreach ($createdJobs as $job) {
+        $activityLog?->logJobCreated($job, $user, 'dashboard.site_actions', [
+            'action_type' => $actionType,
+        ]);
+    }
+
+    if ($createdJobs === []) {
+        $message = 'No jobs were queued.';
+        if ($skipped !== []) {
+            $message .= ' Skipped: ' . implode(', ', array_slice($skipped, 0, 5)) . (count($skipped) > 5 ? ', ...' : '');
+        }
+        push_flash('flash', ['type' => 'error', 'message' => $message]);
+    } else {
+        $message = sprintf(
+            'Queued %d %s.',
+            count($createdJobs),
+            count($createdJobs) === 1 ? 'job' : 'jobs'
+        );
+        if ($skipped !== []) {
+            $message .= ' Skipped: ' . implode(', ', array_slice($skipped, 0, 5)) . (count($skipped) > 5 ? ', ...' : '');
+        }
+        push_flash('flash', ['type' => 'success', 'message' => $message]);
+    }
+
+    header('Location: /dashboard/sites/' . urlencode($site->id));
+    exit;
 }
 
 if ($path === '/dashboard/jobs' && $method === 'GET') {
@@ -401,6 +534,56 @@ function is_admin_area_path(string $path): bool
     }
 
     return false;
+}
+
+/**
+ * @return list<string>
+ */
+function normalize_selected_slugs(mixed $value): array
+{
+    if (!is_array($value)) {
+        return [];
+    }
+
+    $normalized = [];
+    foreach ($value as $item) {
+        if (!is_string($item)) {
+            continue;
+        }
+
+        $slug = trim($item);
+        if ($slug === '') {
+            continue;
+        }
+
+        $normalized[$slug] = $slug;
+    }
+
+    return array_values($normalized);
+}
+
+/**
+ * @param list<array{slug:string}> $items
+ * @return array<string, array<string, mixed>>
+ */
+function index_inventory_by_slug(array $items): array
+{
+    $indexed = [];
+
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $slug = trim((string) ($item['slug'] ?? ''));
+        if ($slug === '') {
+            continue;
+        }
+
+        $indexed[$slug] = $item;
+    }
+
+    return $indexed;
 }
 
 /**

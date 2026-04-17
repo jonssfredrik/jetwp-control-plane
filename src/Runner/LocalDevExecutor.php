@@ -24,8 +24,12 @@ final class LocalDevExecutor
         'cache.flush',
         'translations.update',
         'core.update',
+        'core.rollback',
         'plugin.update',
+        'plugin.rollback',
         'plugin.update_all',
+        'theme.update',
+        'theme.rollback',
         'security.integrity',
         'db.optimize',
     ];
@@ -166,6 +170,35 @@ try {
     define('WP_USE_THEMES', false);
     require \$wpLoad;
 
+    \$findPluginFile = static function (string \$requestedSlug): ?string {
+        foreach (get_plugins() as \$file => \$data) {
+            \$slug = dirname((string) \$file) === '.' ? basename((string) \$file, '.php') : dirname((string) \$file);
+            if (\$slug === \$requestedSlug) {
+                return (string) \$file;
+            }
+        }
+
+        return null;
+    };
+
+    \$findTheme = static function (string \$requestedSlug): ?WP_Theme {
+        foreach (wp_get_themes() as \$stylesheet => \$theme) {
+            if ((string) \$stylesheet === \$requestedSlug) {
+                return \$theme;
+            }
+        }
+
+        return null;
+    };
+
+    \$packageUrl = static function (string \$type, string \$slug, string \$version): string {
+        if (\$type === 'plugin') {
+            return 'https://downloads.wordpress.org/plugin/' . rawurlencode(\$slug) . '.' . rawurlencode(\$version) . '.zip';
+        }
+
+        return 'https://downloads.wordpress.org/theme/' . rawurlencode(\$slug) . '.' . rawurlencode(\$version) . '.zip';
+    };
+
     switch (\$operation['type']) {
         case 'uptime.check':
             \$response = wp_remote_get((string) \$operation['site_url'], [
@@ -260,6 +293,7 @@ try {
             require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
             require_once ABSPATH . 'wp-admin/includes/update.php';
 
+            \$beforeVersion = get_bloginfo('version');
             wp_version_check();
             \$requestedVersion = trim((string) (\$operation['params']['version'] ?? ''));
             \$updates = get_core_updates(['dismissed' => false]);
@@ -304,7 +338,44 @@ try {
             \$updatedVersion = isset(\$selected->current) ? (string) \$selected->current : (isset(\$selected->version) ? (string) \$selected->version : get_bloginfo('version'));
             echo json_encode([
                 'message' => 'Core update attempted locally.',
+                'previous_version' => \$beforeVersion,
                 'updated_to' => \$updatedVersion,
+                'result' => \$result,
+            ], JSON_UNESCAPED_SLASHES);
+            exit(0);
+
+        case 'core.rollback':
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+            require_once ABSPATH . 'wp-admin/includes/update.php';
+
+            \$requestedVersion = trim((string) (\$operation['params']['version'] ?? ''));
+            if (\$requestedVersion === '') {
+                throw new RuntimeException('core.rollback requires params.version.');
+            }
+
+            \$beforeVersion = get_bloginfo('version');
+            \$rollback = (object) [
+                'response' => 'upgrade',
+                'current' => \$requestedVersion,
+                'version' => \$requestedVersion,
+                'download' => 'https://wordpress.org/wordpress-' . \$requestedVersion . '.zip',
+                'packages' => (object) [
+                    'full' => 'https://wordpress.org/wordpress-' . \$requestedVersion . '.zip',
+                ],
+            ];
+
+            \$skin = new Automatic_Upgrader_Skin();
+            \$upgrader = new Core_Upgrader(\$skin);
+            \$result = \$upgrader->upgrade(\$rollback);
+            if (is_wp_error(\$result)) {
+                throw new RuntimeException(\$result->get_error_message());
+            }
+
+            echo json_encode([
+                'message' => 'Core rollback attempted locally.',
+                'previous_version' => \$beforeVersion,
+                'rolled_back_to' => \$requestedVersion,
                 'result' => \$result,
             ], JSON_UNESCAPED_SLASHES);
             exit(0);
@@ -321,19 +392,13 @@ try {
                 throw new RuntimeException('plugin.update requires params.slug.');
             }
 
-            \$pluginFile = null;
-            foreach (get_plugins() as \$file => \$data) {
-                \$slug = dirname((string) \$file) === '.' ? basename((string) \$file, '.php') : dirname((string) \$file);
-                if (\$slug === \$requestedSlug) {
-                    \$pluginFile = (string) \$file;
-                    break;
-                }
-            }
-
+            \$pluginFile = \$findPluginFile(\$requestedSlug);
             if (\$pluginFile === null) {
                 throw new RuntimeException('Requested plugin slug was not found locally.');
             }
 
+            \$plugins = get_plugins();
+            \$beforeVersion = isset(\$plugins[\$pluginFile]['Version']) ? (string) \$plugins[\$pluginFile]['Version'] : null;
             \$skin = new Automatic_Upgrader_Skin();
             \$upgrader = new Plugin_Upgrader(\$skin);
             \$result = \$upgrader->upgrade(\$pluginFile);
@@ -341,9 +406,62 @@ try {
                 throw new RuntimeException(\$result->get_error_message());
             }
 
+            wp_clean_plugins_cache(true);
+            \$afterPlugins = get_plugins();
             echo json_encode([
                 'message' => 'Plugin update attempted locally.',
+                'slug' => \$requestedSlug,
                 'plugin' => \$pluginFile,
+                'previous_version' => \$beforeVersion,
+                'updated_to' => isset(\$afterPlugins[\$pluginFile]['Version']) ? (string) \$afterPlugins[\$pluginFile]['Version'] : null,
+                'result' => \$result,
+            ], JSON_UNESCAPED_SLASHES);
+            exit(0);
+
+        case 'plugin.rollback':
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+
+            \$requestedSlug = trim((string) (\$operation['params']['slug'] ?? ''));
+            \$requestedVersion = trim((string) (\$operation['params']['version'] ?? ''));
+            if (\$requestedSlug === '' || \$requestedVersion === '') {
+                throw new RuntimeException('plugin.rollback requires params.slug and params.version.');
+            }
+
+            \$pluginFile = \$findPluginFile(\$requestedSlug);
+            if (\$pluginFile === null) {
+                throw new RuntimeException('Requested plugin slug was not found locally.');
+            }
+
+            \$plugins = get_plugins();
+            \$beforeVersion = isset(\$plugins[\$pluginFile]['Version']) ? (string) \$plugins[\$pluginFile]['Version'] : null;
+            \$wasActive = is_plugin_active(\$pluginFile);
+
+            \$skin = new Automatic_Upgrader_Skin();
+            \$upgrader = new Plugin_Upgrader(\$skin);
+            \$result = \$upgrader->install(\$packageUrl('plugin', \$requestedSlug, \$requestedVersion), [
+                'overwrite_package' => true,
+            ]);
+            if (is_wp_error(\$result)) {
+                throw new RuntimeException(\$result->get_error_message());
+            }
+
+            if (\$wasActive) {
+                \$activation = activate_plugin(\$pluginFile, '', false, true);
+                if (is_wp_error(\$activation)) {
+                    throw new RuntimeException(\$activation->get_error_message());
+                }
+            }
+
+            wp_clean_plugins_cache(true);
+            \$afterPlugins = get_plugins();
+            echo json_encode([
+                'message' => 'Plugin rollback attempted locally.',
+                'slug' => \$requestedSlug,
+                'plugin' => \$pluginFile,
+                'previous_version' => \$beforeVersion,
+                'rolled_back_to' => isset(\$afterPlugins[\$pluginFile]['Version']) ? (string) \$afterPlugins[\$pluginFile]['Version'] : \$requestedVersion,
                 'result' => \$result,
             ], JSON_UNESCAPED_SLASHES);
             exit(0);
@@ -375,6 +493,77 @@ try {
             echo json_encode([
                 'message' => 'Plugin bulk update attempted locally.',
                 'updated' => \$targets,
+                'result' => \$result,
+            ], JSON_UNESCAPED_SLASHES);
+            exit(0);
+
+        case 'theme.update':
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+            require_once ABSPATH . 'wp-admin/includes/update.php';
+            require_once ABSPATH . 'wp-includes/theme.php';
+
+            wp_update_themes();
+            \$requestedSlug = trim((string) (\$operation['params']['slug'] ?? ''));
+            if (\$requestedSlug === '') {
+                throw new RuntimeException('theme.update requires params.slug.');
+            }
+
+            \$theme = \$findTheme(\$requestedSlug);
+            if (!\$theme instanceof WP_Theme) {
+                throw new RuntimeException('Requested theme slug was not found locally.');
+            }
+
+            \$beforeVersion = (string) \$theme->get('Version');
+            \$skin = new Automatic_Upgrader_Skin();
+            \$upgrader = new Theme_Upgrader(\$skin);
+            \$result = \$upgrader->upgrade(\$requestedSlug);
+            if (is_wp_error(\$result)) {
+                throw new RuntimeException(\$result->get_error_message());
+            }
+
+            \$afterTheme = wp_get_theme(\$requestedSlug);
+            echo json_encode([
+                'message' => 'Theme update attempted locally.',
+                'slug' => \$requestedSlug,
+                'previous_version' => \$beforeVersion,
+                'updated_to' => (string) \$afterTheme->get('Version'),
+                'result' => \$result,
+            ], JSON_UNESCAPED_SLASHES);
+            exit(0);
+
+        case 'theme.rollback':
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+            require_once ABSPATH . 'wp-includes/theme.php';
+
+            \$requestedSlug = trim((string) (\$operation['params']['slug'] ?? ''));
+            \$requestedVersion = trim((string) (\$operation['params']['version'] ?? ''));
+            if (\$requestedSlug === '' || \$requestedVersion === '') {
+                throw new RuntimeException('theme.rollback requires params.slug and params.version.');
+            }
+
+            \$theme = \$findTheme(\$requestedSlug);
+            if (!\$theme instanceof WP_Theme) {
+                throw new RuntimeException('Requested theme slug was not found locally.');
+            }
+
+            \$beforeVersion = (string) \$theme->get('Version');
+            \$skin = new Automatic_Upgrader_Skin();
+            \$upgrader = new Theme_Upgrader(\$skin);
+            \$result = \$upgrader->install(\$packageUrl('theme', \$requestedSlug, \$requestedVersion), [
+                'overwrite_package' => true,
+            ]);
+            if (is_wp_error(\$result)) {
+                throw new RuntimeException(\$result->get_error_message());
+            }
+
+            \$afterTheme = wp_get_theme(\$requestedSlug);
+            echo json_encode([
+                'message' => 'Theme rollback attempted locally.',
+                'slug' => \$requestedSlug,
+                'previous_version' => \$beforeVersion,
+                'rolled_back_to' => (string) \$afterTheme->get('Version'),
                 'result' => \$result,
             ], JSON_UNESCAPED_SLASHES);
             exit(0);

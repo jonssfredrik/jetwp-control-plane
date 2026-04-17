@@ -289,7 +289,7 @@ $icons = [
             box-shadow: 0 10px 26px -10px rgba(248,113,113,0.65), 0 0 0 1px rgba(255,255,255,0.06) inset;
         }
         .btn svg { width: 15px; height: 15px; }
-        .btn.sm { padding: 7px 12px; font-size: 12px; border-radius: 10px; }
+        .btn.sm, button.sm { padding: 7px 12px; font-size: 12px; border-radius: 10px; }
 
         form.inline { display: inline; }
 

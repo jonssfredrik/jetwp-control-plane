@@ -24,8 +24,12 @@ final class CommandBuilder
             'cache.flush' => "{$base} cache flush && {$base} transient delete --all",
             'translations.update' => "{$base} language core update && {$base} language plugin update --all && {$base} language theme update --all",
             'plugin.update' => $this->pluginUpdate($base, $params),
+            'plugin.rollback' => $this->pluginRollback($base, $params),
             'plugin.update_all' => "{$base} plugin update --all",
             'core.update' => $this->coreUpdate($base, $params),
+            'core.rollback' => $this->coreRollback($base, $params),
+            'theme.update' => $this->themeUpdate($base, $params),
+            'theme.rollback' => $this->themeRollback($base, $params),
             'security.integrity' => "{$base} core verify-checksums --format=json",
             'db.optimize' => "{$base} db optimize",
             default => throw new InvalidArgumentException("Unknown job type: {$type}"),
@@ -42,6 +46,21 @@ final class CommandBuilder
         return "{$base} plugin update " . escapeshellarg($slug);
     }
 
+    private function pluginRollback(string $base, array $params): string
+    {
+        $slug = trim((string) ($params['slug'] ?? ''));
+        $version = trim((string) ($params['version'] ?? ''));
+        if ($slug === '' || $version === '') {
+            throw new InvalidArgumentException('plugin.rollback requires params.slug and params.version');
+        }
+
+        return "{$base} plugin install "
+            . escapeshellarg($slug)
+            . ' --version='
+            . escapeshellarg($version)
+            . ' --force';
+    }
+
     private function coreUpdate(string $base, array $params): string
     {
         $version = trim((string) ($params['version'] ?? ''));
@@ -51,6 +70,41 @@ final class CommandBuilder
         }
 
         return "{$base} core update";
+    }
+
+    private function coreRollback(string $base, array $params): string
+    {
+        $version = trim((string) ($params['version'] ?? ''));
+        if ($version === '') {
+            throw new InvalidArgumentException('core.rollback requires params.version');
+        }
+
+        return "{$base} core update --version=" . escapeshellarg($version) . ' --force';
+    }
+
+    private function themeUpdate(string $base, array $params): string
+    {
+        $slug = trim((string) ($params['slug'] ?? ''));
+        if ($slug === '') {
+            throw new InvalidArgumentException('theme.update requires params.slug');
+        }
+
+        return "{$base} theme update " . escapeshellarg($slug);
+    }
+
+    private function themeRollback(string $base, array $params): string
+    {
+        $slug = trim((string) ($params['slug'] ?? ''));
+        $version = trim((string) ($params['version'] ?? ''));
+        if ($slug === '' || $version === '') {
+            throw new InvalidArgumentException('theme.rollback requires params.slug and params.version');
+        }
+
+        return "{$base} theme install "
+            . escapeshellarg($slug)
+            . ' --version='
+            . escapeshellarg($version)
+            . ' --force';
     }
 
     private function uptimeCheck(): string
