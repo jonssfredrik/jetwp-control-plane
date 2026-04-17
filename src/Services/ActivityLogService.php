@@ -79,6 +79,17 @@ final class ActivityLogService
         ]));
     }
 
+    public function logJobWorkerEvent(Job $job, string $event, array $details = []): void
+    {
+        $this->record(null, $job->siteId, 'job.worker.' . trim($event), array_merge($details, [
+            'job_id' => $job->id,
+            'type' => $job->type,
+            'status' => $job->status,
+            'attempts' => $job->attempts,
+            'max_attempts' => $job->maxAttempts,
+        ]));
+    }
+
     public function logAlert(string $action, ?string $siteId, array $details = []): void
     {
         $this->record(null, $siteId, $action, $details);
@@ -132,6 +143,46 @@ final class ActivityLogService
 
         $statement = $this->db->prepare($sql);
         $statement->execute($params);
+
+        $entries = [];
+        foreach ($statement->fetchAll() as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $entries[] = [
+                'id' => (int) $row['id'],
+                'user_id' => isset($row['user_id']) ? (int) $row['user_id'] : null,
+                'site_id' => isset($row['site_id']) ? (string) $row['site_id'] : null,
+                'action' => (string) $row['action'],
+                'details' => $this->decodeDetails($row['details'] ?? null),
+                'ip_address' => isset($row['ip_address']) ? (string) $row['ip_address'] : null,
+                'created_at' => (string) $row['created_at'],
+            ];
+        }
+
+        return $entries;
+    }
+
+    /**
+     * @return list<array{id:int,user_id:?int,site_id:?string,action:string,details:array,ip_address:?string,created_at:string}>
+     */
+    public function recentForJob(string $jobId, int $limit = 50): array
+    {
+        $jobId = trim($jobId);
+        if ($jobId === '') {
+            throw new InvalidArgumentException('job_id is required.');
+        }
+
+        $limit = max(1, min($limit, 200));
+        $statement = $this->db->prepare(
+            'SELECT id, user_id, site_id, action, details, ip_address, created_at
+             FROM activity_log
+             WHERE JSON_UNQUOTE(JSON_EXTRACT(details, \'$.job_id\')) = :job_id
+             ORDER BY created_at DESC, id DESC
+             LIMIT ' . $limit
+        );
+        $statement->execute(['job_id' => $jobId]);
 
         $entries = [];
         foreach ($statement->fetchAll() as $row) {

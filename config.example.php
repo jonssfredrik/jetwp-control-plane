@@ -29,6 +29,8 @@ return [
         'poll_interval' => (int) (getenv('JETWP_QUEUE_POLL_INTERVAL') ?: 5),
         'default_timeout' => (int) (getenv('JETWP_QUEUE_DEFAULT_TIMEOUT') ?: 300),
         'max_retries' => (int) (getenv('JETWP_QUEUE_MAX_RETRIES') ?: 3),
+        'debug_log_enabled' => filter_var(getenv('JETWP_QUEUE_DEBUG_LOG_ENABLED') ?: '1', FILTER_VALIDATE_BOOL),
+        'debug_log_path' => getenv('JETWP_QUEUE_DEBUG_LOG_PATH') ?: JETWP_CONTROL_ROOT . '/storage/logs/queue-worker.log',
     ],
     'alerts' => [
         'enabled' => filter_var(getenv('JETWP_ALERTS_ENABLED') ?: '1', FILTER_VALIDATE_BOOL),

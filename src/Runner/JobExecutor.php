@@ -55,6 +55,14 @@ final class JobExecutor
             ? $this->localDevExecutor->describe($job)
             : $this->commandBuilder($site, $server)->build($job->type, $job->params ?? []);
 
+        $this->activityLog?->logJobWorkerEvent($job, 'executor_prepared', [
+            'mode' => $useLocalDev ? 'local-dev' : 'ssh',
+            'server_id' => $server->id,
+            'server_label' => $server->label,
+            'command' => $command,
+            'dry_run' => $dryRun,
+        ]);
+
         if ($dryRun) {
             return ExecutionResult::dryRun($command);
         }
@@ -88,6 +96,7 @@ final class JobExecutor
             );
             $this->activityLog?->logJobExecution($failedJob ?? $job, 'failed', [
                 'exception' => $exception->getMessage(),
+                'command' => $command,
             ]);
 
             throw $exception;
@@ -105,6 +114,7 @@ final class JobExecutor
                 'exit_code' => $result->exitCode,
                 'duration_ms' => $result->durationMs,
                 'timed_out' => $result->timedOut,
+                'command' => $command,
             ]);
 
             return $result;
@@ -121,6 +131,7 @@ final class JobExecutor
             'exit_code' => $result->exitCode,
             'duration_ms' => $result->durationMs,
             'timed_out' => $result->timedOut,
+            'command' => $command,
         ]);
 
         return $result;

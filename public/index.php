@@ -481,6 +481,7 @@ if ($method === 'GET' && preg_match('#^/dashboard/jobs/([a-f0-9-]{36})$#i', $pat
         'user' => $user,
         'job' => $job,
         'site' => Site::findById($db, $job->siteId),
+        'jobActivity' => $activityLog?->recentForJob($job->id, 25) ?? [],
         'flash' => pull_flash('flash'),
     ]);
     return;

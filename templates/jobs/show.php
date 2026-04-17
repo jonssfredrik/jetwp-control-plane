@@ -7,6 +7,7 @@ declare(strict_types=1);
 /** @var JetWP\Control\Models\User $user */
 /** @var JetWP\Control\Models\Job $job */
 /** @var JetWP\Control\Models\Site|null $site */
+/** @var list<array{id:int,user_id:?int,site_id:?string,action:string,details:array,ip_address:?string,created_at:string}> $jobActivity */
 /** @var array{type: string, message: string}|null $flash */
 
 $pageTitle = $appName . ' · Job ' . $job->type;
@@ -110,6 +111,50 @@ require __DIR__ . '/../_chrome.php';
             <pre><?= htmlspecialchars($job->errorOutput ?? 'No stderr captured.') ?></pre>
         </article>
     </div>
+
+    <article class="panel">
+        <div class="row" style="align-items:flex-start; gap:18px;">
+            <div class="stack" style="flex:1;">
+                <div class="label">Execution Trace</div>
+                <p class="muted" style="margin:0;">Activity around claim, capacity checks, executor preparation, retries, and completion.</p>
+            </div>
+            <?php if ($job->status === 'pending' && $jobActivity === []): ?>
+                <div class="chip warn">No worker trace yet</div>
+            <?php endif; ?>
+        </div>
+
+        <?php if ($job->status === 'pending' && $jobActivity === []): ?>
+            <p class="muted" style="margin-top:14px;">
+                This job has no worker-side events yet. That usually means the queue worker has not picked it up at all,
+                or the worker process is not running on the server.
+            </p>
+        <?php elseif ($jobActivity === []): ?>
+            <p class="muted" style="margin-top:14px;">No execution trace has been recorded for this job.</p>
+        <?php else: ?>
+            <div style="margin-top:14px; overflow:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Action</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($jobActivity as $entry): ?>
+                        <tr>
+                            <td style="white-space:nowrap; font-family:'JetBrains Mono',monospace;"><?= htmlspecialchars($entry['created_at']) ?></td>
+                            <td><code><?= htmlspecialchars($entry['action']) ?></code></td>
+                            <td>
+                                <pre style="margin:0; white-space:pre-wrap;"><?= htmlspecialchars(json_encode($entry['details'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}') ?></pre>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+    </article>
 </section>
 
 <?php require __DIR__ . '/../_chrome_end.php'; ?>
