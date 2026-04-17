@@ -1,7 +1,7 @@
 # JetWP Control Plane
 
 Self-hosted management plane for fleets of WordPress sites. Pairs with the
-[JetWP Agent](https://github.com/jonssfredrik/jeywp-agent) plugin installed on
+[JetWP Agent](https://github.com/jonssfredrik/jetwp-agent) plugin installed on
 each managed site.
 
 The Control Plane:
