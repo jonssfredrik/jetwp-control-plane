@@ -14,135 +14,96 @@ use JetWP\Control\Models\Site;
 /** @var array<string, list<Job>> $recentJobs */
 /** @var int $heartbeatThresholdMinutes */
 
-$statusLabel = static function (Site $site, ?array $telemetry, int $thresholdMinutes): string {
+$statusInfo = static function (Site $site, ?array $telemetry, int $thresholdMinutes): array {
     if ($site->lastHeartbeatAt === null) {
-        return 'Awaiting first heartbeat';
+        return ['label' => 'Awaiting first heartbeat', 'class' => 'warn'];
     }
-
     $age = time() - strtotime($site->lastHeartbeatAt);
     if ($age > ($thresholdMinutes * 60)) {
-        return 'Heartbeat overdue';
+        return ['label' => 'Heartbeat overdue', 'class' => 'bad'];
     }
-
     if ($telemetry !== null) {
         $uptime = $telemetry['payload']['uptime_status'] ?? null;
         if (is_string($uptime) && $uptime !== '') {
-            return 'Active (' . $uptime . ')';
+            return ['label' => 'Active (' . $uptime . ')', 'class' => 'good live'];
         }
     }
-
-    return 'Active';
+    return ['label' => 'Active', 'class' => 'good live'];
 };
+
+$pageTitle = $appName . ' · Sites';
+$pageEyebrow = 'Fleet Overview';
+$pageHeading = 'Sites';
+$pageLead = 'Current site state, latest heartbeat and recent job activity for the internal pilot.';
+$activeNav = 'sites';
+$pageHeaderAside = '<span class="chip info"><span class="dot"></span>' . count($sites) . ' site' . (count($sites) === 1 ? '' : 's') . ' connected</span>';
+
+require __DIR__ . '/../_chrome.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= htmlspecialchars($appName) ?> Sites</title>
-    <style>
-        :root {
-            --bg: #f3f5ef;
-            --panel: #fff;
-            --ink: #17221b;
-            --muted: #5a675f;
-            --line: #dbe2da;
-            --accent: #184e3a;
-            --chip: #edf3ee;
-        }
-        * { box-sizing: border-box; }
-        body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Segoe UI", sans-serif; }
-        .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 20px 48px; }
-        header, .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
-        h1 { margin: 0 0 6px; font: 700 2rem/1.1 Georgia, serif; }
-        p { margin: 0; color: var(--muted); }
-        .actions, .nav { display: flex; gap: 12px; flex-wrap: wrap; }
-        .button-link, button {
-            display: inline-flex; align-items: center; justify-content: center;
-            padding: 10px 16px; border-radius: 999px; border: 0;
-            background: var(--accent); color: #fff; text-decoration: none; font-weight: 700; cursor: pointer;
-        }
-        .button-link.alt { background: #e6ede7; color: var(--ink); }
-        table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; margin-top: 24px; }
-        th, td { padding: 14px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-        th { background: #f8faf7; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
-        tr:last-child td { border-bottom: 0; }
-        .chip { display: inline-block; padding: 4px 10px; border-radius: 999px; background: var(--chip); font-size: 0.85rem; font-weight: 700; }
-        .stack { display: grid; gap: 6px; }
-        code { font-family: Consolas, monospace; font-size: 0.9rem; }
-    </style>
-</head>
-<body>
-<div class="wrap">
-    <header>
-        <div>
-            <h1>Sites</h1>
-            <p>Current site state, latest heartbeat and recent job activity for the internal pilot.</p>
-        </div>
-        <form method="post" action="/logout">
-            <input type="hidden" name="_token" value="<?= htmlspecialchars($csrf->token()) ?>">
-            <button type="submit">Log Out</button>
-        </form>
-    </header>
 
-    <div class="topbar" style="margin-top: 18px;">
-        <div class="nav">
-            <a class="button-link alt" href="/dashboard">Dashboard</a>
-            <a class="button-link alt" href="/dashboard/jobs">Jobs</a>
-            <a class="button-link alt" href="/dashboard/jobs/create">Create Job</a>
-        </div>
-        <p><?= count($sites) ?> site(s) in Control Plane</p>
-    </div>
-
-    <table>
-        <thead>
-        <tr>
-            <th>Site</th>
-            <th>Status</th>
-            <th>Server</th>
-            <th>Last Heartbeat</th>
-            <th>Versions</th>
-            <th>Recent Jobs</th>
-        </tr>
-        </thead>
-        <tbody>
-        <?php foreach ($sites as $site): ?>
-            <?php $telemetry = $latestTelemetry[$site->id] ?? null; ?>
-            <?php $jobs = $recentJobs[$site->id] ?? []; ?>
+<div class="panel" style="padding: 0;">
+    <div class="table-wrap" style="border: 0; background: transparent;">
+        <table>
+            <thead>
             <tr>
-                <td>
-                    <div class="stack">
-                        <strong><a href="/dashboard/sites/<?= urlencode($site->id) ?>"><?= htmlspecialchars($site->label) ?></a></strong>
-                        <span><?= htmlspecialchars($site->url) ?></span>
-                        <code><?= htmlspecialchars($site->id) ?></code>
-                    </div>
-                </td>
-                <td>
-                    <span class="chip"><?= htmlspecialchars($statusLabel($site, $telemetry, $heartbeatThresholdMinutes)) ?></span>
-                </td>
-                <td><?= htmlspecialchars($serverLabels[$site->serverId] ?? ('Server #' . $site->serverId)) ?></td>
-                <td><?= htmlspecialchars($site->lastHeartbeatAt ?? 'Never') ?></td>
-                <td>
-                    <div class="stack">
-                        <span>WP: <?= htmlspecialchars($site->wpVersion ?? 'n/a') ?></span>
-                        <span>PHP: <?= htmlspecialchars($site->phpVersion ?? 'n/a') ?></span>
-                    </div>
-                </td>
-                <td>
-                    <?php if ($jobs === []): ?>
-                        <span class="muted">No jobs yet</span>
-                    <?php else: ?>
-                        <div class="stack">
-                            <?php foreach ($jobs as $job): ?>
-                                <span><?= htmlspecialchars($job->type) ?> (<?= htmlspecialchars($job->status) ?>)</span>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
-                </td>
+                <th>Site</th>
+                <th>Status</th>
+                <th>Server</th>
+                <th>Last Heartbeat</th>
+                <th>Versions</th>
+                <th>Recent Jobs</th>
             </tr>
-        <?php endforeach; ?>
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+            <?php foreach ($sites as $site): ?>
+                <?php
+                $telemetry = $latestTelemetry[$site->id] ?? null;
+                $jobs = $recentJobs[$site->id] ?? [];
+                $status = $statusInfo($site, $telemetry, $heartbeatThresholdMinutes);
+                ?>
+                <tr>
+                    <td>
+                        <div class="stack">
+                            <a href="/dashboard/sites/<?= urlencode($site->id) ?>"><?= htmlspecialchars($site->label) ?></a>
+                            <span class="muted" style="font-size: 12.5px;"><?= htmlspecialchars($site->url) ?></span>
+                            <code style="font-size: 11px; opacity: 0.7;"><?= htmlspecialchars($site->id) ?></code>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="chip <?= htmlspecialchars($status['class']) ?>">
+                            <span class="dot"></span><?= htmlspecialchars($status['label']) ?>
+                        </span>
+                    </td>
+                    <td><?= htmlspecialchars($serverLabels[$site->serverId] ?? ('Server #' . $site->serverId)) ?></td>
+                    <td style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px;"><?= htmlspecialchars($site->lastHeartbeatAt ?? 'Never') ?></td>
+                    <td>
+                        <div class="stack">
+                            <span><span class="muted">WP</span> <?= htmlspecialchars($site->wpVersion ?? 'n/a') ?></span>
+                            <span><span class="muted">PHP</span> <?= htmlspecialchars($site->phpVersion ?? 'n/a') ?></span>
+                        </div>
+                    </td>
+                    <td>
+                        <?php if ($jobs === []): ?>
+                            <span class="muted">No jobs yet</span>
+                        <?php else: ?>
+                            <div class="stack">
+                                <?php foreach ($jobs as $job): ?>
+                                    <span>
+                                        <?= htmlspecialchars($job->type) ?>
+                                        <span class="chip status-<?= htmlspecialchars($job->status) ?>" style="margin-left:6px;"><?= htmlspecialchars($job->status) ?></span>
+                                    </span>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if ($sites === []): ?>
+                <tr><td colspan="6" style="text-align:center; padding: 40px;" class="muted">No sites registered yet.</td></tr>
+            <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
 </div>
-</body>
-</html>
+
+<?php require __DIR__ . '/../_chrome_end.php'; ?>

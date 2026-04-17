@@ -23,11 +23,12 @@ final class SshClient
         $target = sprintf('%s@%s', $server->sshUser, $server->hostname);
         $command = [
             $this->sshBinary,
+            '-F', $this->nullDevice(),
             '-i', $server->sshKeyPath,
             '-p', (string) $server->sshPort,
             '-o', 'BatchMode=yes',
             '-o', 'StrictHostKeyChecking=no',
-            '-o', 'UserKnownHostsFile=NUL',
+            '-o', 'UserKnownHostsFile=' . $this->nullDevice(),
             '-o', 'LogLevel=ERROR',
             '-o', 'ConnectTimeout=' . max(1, $timeoutSeconds),
             $target,
@@ -119,5 +120,10 @@ final class SshClient
         }
 
         return implode(' ', $parts);
+    }
+
+    private function nullDevice(): string
+    {
+        return DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null';
     }
 }

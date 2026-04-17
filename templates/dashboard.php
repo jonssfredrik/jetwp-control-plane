@@ -5,152 +5,69 @@ declare(strict_types=1);
 /** @var string $appName */
 /** @var JetWP\Control\Auth\Csrf $csrf */
 /** @var JetWP\Control\Models\User $user */
+
+$pageTitle = $appName . ' · Overview';
+$pageEyebrow = 'System Online';
+$pageHeading = 'Control Plane';
+$pageLead = 'Mission-control for the fleet. Orchestrate sites, telemetry and job outcomes in real time.';
+$activeNav = 'dashboard';
+
+require __DIR__ . '/_chrome.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= htmlspecialchars($appName) ?></title>
-    <style>
-        :root {
-            --bg: #f5f7f2;
-            --panel: #ffffff;
-            --ink: #112015;
-            --muted: #4d5d53;
-            --accent: #184e3a;
-            --line: #dfe7de;
-        }
 
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            background:
-                linear-gradient(180deg, rgba(24, 78, 58, 0.08), transparent 220px),
-                var(--bg);
-            color: var(--ink);
-            font-family: "Segoe UI", sans-serif;
-        }
+<section class="stack-lg">
+    <div class="grid">
+        <article class="panel glow">
+            <div class="label">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+                Signed in as
+            </div>
+            <div class="value"><?= htmlspecialchars($user->username) ?></div>
+            <p class="muted" style="margin-top:6px"><?= htmlspecialchars($user->email) ?></p>
+            <div class="divider"></div>
+            <span class="chip info live"><span class="dot"></span>Session active</span>
+        </article>
 
-        .wrap {
-            max-width: 960px;
-            margin: 0 auto;
-            padding: 32px 20px 48px;
-        }
+        <article class="panel">
+            <div class="label">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3 7 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/></svg>
+                Role
+            </div>
+            <div class="value"><?= htmlspecialchars($user->role) ?></div>
+            <p class="muted" style="margin-top:6px">RBAC hooks are ready for operator/admin separation.</p>
+            <div class="divider"></div>
+            <span class="chip good"><span class="dot"></span>Privileges verified</span>
+        </article>
 
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 24px;
-        }
-
-        h1 {
-            margin: 0 0 6px;
-            font: 700 2rem/1.1 Georgia, serif;
-        }
-
-        .muted {
-            color: var(--muted);
-            margin: 0;
-        }
-
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 16px;
-        }
-
-        .panel {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: 18px;
-            padding: 20px;
-            box-shadow: 0 10px 28px rgba(17, 32, 21, 0.05);
-        }
-
-        .label {
-            display: block;
-            margin-bottom: 10px;
-            color: var(--muted);
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-        }
-
-        .value {
-            font-size: 1.2rem;
-            font-weight: 700;
-        }
-
-        button {
-            padding: 10px 16px;
-            border: 0;
-            border-radius: 999px;
-            background: var(--accent);
-            color: #fff;
-            cursor: pointer;
-            font-weight: 700;
-        }
-        .button-link {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 10px 16px;
-            border-radius: 999px;
-            background: #e8efe8;
-            color: var(--ink);
-            font-weight: 700;
-            text-decoration: none;
-        }
-        .actions {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-    </style>
-</head>
-<body>
-<div class="wrap">
-    <header>
-        <div>
-            <h1><?= htmlspecialchars($appName) ?></h1>
-            <p class="muted">Bootstrap complete. This is the initial authenticated dashboard shell.</p>
-        </div>
-
-        <form method="post" action="/logout">
-            <input type="hidden" name="_token" value="<?= htmlspecialchars($csrf->token()) ?>">
-            <button type="submit">Log Out</button>
-        </form>
-    </header>
-
-    <div class="actions" style="margin-bottom: 24px;">
-        <a class="button-link" href="/dashboard/sites">Sites</a>
-        <a class="button-link" href="/dashboard/jobs">Jobs</a>
-        <a class="button-link" href="/dashboard/jobs/create">Create Job</a>
+        <article class="panel">
+            <div class="label">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+                Next slice
+            </div>
+            <div class="value">Pilot Readiness</div>
+            <p class="muted" style="margin-top:6px">Use Sites and Jobs to verify real site state, telemetry and job outcomes during the internal pilot.</p>
+            <div class="divider"></div>
+            <span class="chip warn"><span class="dot"></span>In progress</span>
+        </article>
     </div>
 
-    <section class="grid">
-        <article class="panel">
-            <span class="label">Signed in as</span>
-            <div class="value"><?= htmlspecialchars($user->username) ?></div>
-            <p class="muted"><?= htmlspecialchars($user->email) ?></p>
-        </article>
+    <div class="panel">
+        <div class="label">Quick actions</div>
+        <div class="row" style="margin-top: 6px;">
+            <a class="btn" href="/dashboard/sites">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+                Browse Sites
+            </a>
+            <a class="btn ghost" href="/dashboard/jobs">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+                View Jobs
+            </a>
+            <a class="btn ghost" href="/dashboard/jobs/create">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                Create Job
+            </a>
+        </div>
+    </div>
+</section>
 
-        <article class="panel">
-            <span class="label">Role</span>
-            <div class="value"><?= htmlspecialchars($user->role) ?></div>
-            <p class="muted">RBAC hooks are ready for operator/admin separation.</p>
-        </article>
-
-        <article class="panel">
-            <span class="label">Next slice</span>
-            <div class="value">Pilot Readiness</div>
-            <p class="muted">Use Sites and Jobs to verify real site state, telemetry and job outcomes during the internal pilot.</p>
-        </article>
-    </section>
-</div>
-</body>
-</html>
+<?php require __DIR__ . '/_chrome_end.php'; ?>
