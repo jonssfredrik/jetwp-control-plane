@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use JetWP\Control\Api\AgentApi;
 use JetWP\Control\Api\DashboardJobsApi;
+use JetWP\Control\Api\DashboardWorkflowsApi;
 use JetWP\Control\Api\CreateJobController;
 use JetWP\Control\Auth\Authorization;
 use JetWP\Control\Auth\AuthorizationException;
@@ -15,10 +16,17 @@ use JetWP\Control\Models\Server;
 use JetWP\Control\Models\Site;
 use JetWP\Control\Models\Telemetry;
 use JetWP\Control\Models\User;
+use JetWP\Control\Models\Workflow;
+use JetWP\Control\Models\WorkflowRun;
+use JetWP\Control\Models\WorkflowRunStep;
 use JetWP\Control\Runner\JobExecutor;
 use JetWP\Control\Runner\SshClient;
 use JetWP\Control\Services\JobDispatchService;
 use JetWP\Control\Services\SiteInventoryService;
+use JetWP\Control\Services\WorkflowRunService;
+use JetWP\Control\Services\WorkflowService;
+use JetWP\Control\Workflows\WorkflowCatalog;
+use JetWP\Control\Workflows\WorkflowDefinitionValidator;
 
 $app = require dirname(__DIR__) . '/bootstrap.php';
 
@@ -28,7 +36,6 @@ $config = $app['config'];
 $db = $app['db'];
 $secrets = $app['secrets'];
 $activityLog = $app['activity_log'];
-$secrets = $app['secrets'];
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -56,6 +63,38 @@ $dashboardJobsApi = new DashboardJobsApi(
 );
 if ($dashboardJobsApi->handles($path)) {
     $dashboardJobsApi->dispatch($method, $path);
+    return;
+}
+
+$workflowService = new WorkflowService($db, new WorkflowDefinitionValidator());
+$workflowRunService = new WorkflowRunService(
+    $db,
+    $workflowService,
+    $siteInventoryService,
+    new JobFactory($db),
+    new JobDispatchService(
+        $db,
+        $secrets,
+        new JobExecutor(
+            $db,
+            new SshClient(),
+            (int) $config->get('queue.default_timeout', 300),
+            $activityLog
+        ),
+        $activityLog
+    ),
+    $activityLog
+);
+$dashboardWorkflowsApi = new DashboardWorkflowsApi(
+    $db,
+    $csrf,
+    $dashboardApiUser instanceof User ? $dashboardApiUser : null,
+    $workflowService,
+    $workflowRunService,
+    $activityLog
+);
+if ($dashboardWorkflowsApi->handles($path)) {
+    $dashboardWorkflowsApi->dispatch($method, $path);
     return;
 }
 
@@ -312,6 +351,77 @@ if ($method === 'POST' && preg_match('#^/dashboard/sites/([a-f0-9-]{36})/actions
 
     header('Location: /dashboard/sites/' . urlencode($site->id));
     exit;
+}
+
+if ($path === '/dashboard/workflows' && $method === 'GET') {
+    $authorization->ensureJobsAccess($user);
+    $render('workflows/index', [
+        'csrf' => $csrf,
+        'user' => $user,
+        'workflows' => Workflow::all($db),
+        'flash' => pull_flash('flash'),
+    ]);
+    return;
+}
+
+if ($path === '/dashboard/workflows/create' && $method === 'GET') {
+    $authorization->ensureJobsAccess($user);
+    $render('workflows/builder', [
+        'csrf' => $csrf,
+        'user' => $user,
+        'workflow' => null,
+        'nodes' => [],
+        'edges' => [],
+        'nodeCatalog' => WorkflowCatalog::nodeTypes(),
+        'sites' => Site::all($db),
+        'recentRuns' => [],
+        'flash' => pull_flash('flash'),
+    ]);
+    return;
+}
+
+if ($method === 'GET' && preg_match('#^/dashboard/workflows/([a-f0-9-]{36})$#i', $path, $matches) === 1) {
+    $authorization->ensureJobsAccess($user);
+    $workflow = Workflow::findById($db, strtolower($matches[1]));
+    if (!$workflow instanceof Workflow) {
+        http_response_code(404);
+        echo 'Workflow not found.';
+        return;
+    }
+
+    $graph = $workflowService->loadGraph($workflow->id);
+    $render('workflows/builder', [
+        'csrf' => $csrf,
+        'user' => $user,
+        'workflow' => $workflow,
+        'nodes' => $graph['nodes'],
+        'edges' => $graph['edges'],
+        'nodeCatalog' => WorkflowCatalog::nodeTypes(),
+        'sites' => Site::all($db),
+        'recentRuns' => WorkflowRun::recentForWorkflow($db, $workflow->id, 10),
+        'flash' => pull_flash('flash'),
+    ]);
+    return;
+}
+
+if ($method === 'GET' && preg_match('#^/dashboard/workflow-runs/([a-f0-9-]{36})$#i', $path, $matches) === 1) {
+    $authorization->ensureJobsAccess($user);
+    $run = WorkflowRun::findById($db, strtolower($matches[1]));
+    if (!$run instanceof WorkflowRun) {
+        http_response_code(404);
+        echo 'Workflow run not found.';
+        return;
+    }
+
+    $render('workflows/run_show', [
+        'csrf' => $csrf,
+        'user' => $user,
+        'run' => $run,
+        'workflow' => Workflow::findById($db, $run->workflowId),
+        'site' => Site::findById($db, $run->siteId),
+        'steps' => WorkflowRunStep::forRun($db, $run->id),
+    ]);
+    return;
 }
 
 if ($path === '/dashboard/jobs' && $method === 'GET') {

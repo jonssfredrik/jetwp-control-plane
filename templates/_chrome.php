@@ -10,7 +10,7 @@ declare(strict_types=1);
  *   $pageTitle    string  - Browser tab title
  *   $pageHeading  string  - Visible H1
  *   $pageLead     string  - One-line subtitle under the H1
- *   $activeNav    string  - One of: dashboard|sites|jobs|create
+ *   $activeNav    string  - One of: dashboard|sites|jobs|create|workflows
  *   $showLogout   bool    - Whether to show the logout button (default true)
  *   $csrf                 - Csrf instance for the logout form
  *   $appName      string
@@ -23,6 +23,7 @@ $navItems = [
     ['key' => 'dashboard', 'label' => 'Overview',   'href' => '/dashboard',            'icon' => 'grid'],
     ['key' => 'sites',     'label' => 'Sites',      'href' => '/dashboard/sites',      'icon' => 'globe'],
     ['key' => 'jobs',      'label' => 'Jobs',       'href' => '/dashboard/jobs',       'icon' => 'bolt'],
+    ['key' => 'workflows', 'label' => 'Workflows',  'href' => '/dashboard/workflows',  'icon' => 'flow'],
     ['key' => 'create',    'label' => 'New Job',    'href' => '/dashboard/jobs/create','icon' => 'plus'],
 ];
 
@@ -30,6 +31,7 @@ $icons = [
     'grid'  => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
     'globe' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
     'bolt'  => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>',
+    'flow'  => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6h7M18 8.5v7M8 7.5l8 8"/></svg>',
     'plus'  => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
     'logout'=> '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5M15 12H3"/></svg>',
     'spark' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>',
