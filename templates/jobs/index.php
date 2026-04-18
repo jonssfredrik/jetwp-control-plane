@@ -106,6 +106,10 @@ require __DIR__ . '/../_chrome.php';
                                         </form>
                                     <?php endif; ?>
                                     <?php if ($job->status === 'pending'): ?>
+                                        <form method="post" action="/dashboard/jobs/<?= urlencode($job->id) ?>/trigger" class="inline">
+                                            <input type="hidden" name="_token" value="<?= htmlspecialchars($csrf->token()) ?>">
+                                            <button type="submit" class="sm">Trigger</button>
+                                        </form>
                                         <form method="post" action="/dashboard/jobs/<?= urlencode($job->id) ?>/cancel" class="inline">
                                             <input type="hidden" name="_token" value="<?= htmlspecialchars($csrf->token()) ?>">
                                             <button type="submit" class="danger sm">Cancel</button>

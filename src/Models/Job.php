@@ -377,6 +377,16 @@ final class Job
         );
     }
 
+    public static function claimPendingByIdForAgent(PDO $db, string $id, string $dispatchReason): ?self
+    {
+        return self::claimPendingById($db, $id, self::RUNNER_AGENT, $dispatchReason);
+    }
+
+    public static function claimPendingByIdForSsh(PDO $db, string $id, string $dispatchReason): ?self
+    {
+        return self::claimPendingById($db, $id, self::RUNNER_SSH, $dispatchReason);
+    }
+
     public static function markCompleted(
         PDO $db,
         string $id,
@@ -692,6 +702,59 @@ final class Job
             ]);
 
             $job = self::findById($db, $id);
+            $db->commit();
+
+            return $job;
+        } catch (\Throwable $exception) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+
+            throw $exception;
+        }
+    }
+
+    private static function claimPendingById(PDO $db, string $id, string $runnerType, string $dispatchReason): ?self
+    {
+        $db->beginTransaction();
+
+        try {
+            $statement = $db->prepare(
+                'SELECT id
+                 FROM jobs
+                 WHERE id = :id
+                   AND status = :status
+                 LIMIT 1
+                 FOR UPDATE'
+            );
+            $statement->execute([
+                'id' => $id,
+                'status' => self::STATUS_PENDING,
+            ]);
+            $claimedId = $statement->fetchColumn();
+
+            if (!is_string($claimedId) || $claimedId === '') {
+                $db->commit();
+                return null;
+            }
+
+            $update = $db->prepare(
+                'UPDATE jobs
+                 SET status = :status,
+                     runner_type = :runner_type,
+                     claimed_at = NOW(),
+                     dispatch_reason = :dispatch_reason,
+                     started_at = NOW()
+                 WHERE id = :id'
+            );
+            $update->execute([
+                'status' => self::STATUS_RUNNING,
+                'runner_type' => $runnerType,
+                'dispatch_reason' => $dispatchReason,
+                'id' => $claimedId,
+            ]);
+
+            $job = self::findById($db, $claimedId);
             $db->commit();
 
             return $job;

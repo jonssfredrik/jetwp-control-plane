@@ -15,6 +15,9 @@ use JetWP\Control\Models\Server;
 use JetWP\Control\Models\Site;
 use JetWP\Control\Models\Telemetry;
 use JetWP\Control\Models\User;
+use JetWP\Control\Runner\JobExecutor;
+use JetWP\Control\Runner\SshClient;
+use JetWP\Control\Services\JobDispatchService;
 use JetWP\Control\Services\SiteInventoryService;
 
 $app = require dirname(__DIR__) . '/bootstrap.php';
@@ -25,6 +28,7 @@ $config = $app['config'];
 $db = $app['db'];
 $secrets = $app['secrets'];
 $activityLog = $app['activity_log'];
+$secrets = $app['secrets'];
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
@@ -398,6 +402,32 @@ if ($path === '/dashboard/jobs' && $method === 'POST') {
 
     $activityLog?->logJobCreated($job, $user, 'dashboard.ui');
 
+    if ($old['scheduled_at'] === '') {
+        $dispatcher = new JobDispatchService(
+            $db,
+            $secrets,
+            new JobExecutor(
+                $db,
+                new SshClient(),
+                (int) $config->get('queue.default_timeout', 300),
+                $activityLog
+            ),
+            $activityLog
+        );
+
+        try {
+            $job = $dispatcher->dispatch($job, 'create_immediate');
+        } catch (Throwable $exception) {
+            push_flash('flash', ['type' => 'error', 'message' => 'Job created but direct trigger failed: ' . $exception->getMessage()]);
+            header('Location: /dashboard/jobs/' . urlencode($job->id));
+            exit;
+        }
+
+        push_flash('flash', ['type' => 'success', 'message' => 'Job created and triggered immediately.']);
+        header('Location: /dashboard/jobs/' . urlencode($job->id));
+        exit;
+    }
+
     push_flash('flash', ['type' => 'success', 'message' => 'Job created successfully.']);
     header('Location: /dashboard/jobs/' . urlencode($job->id));
     exit;
@@ -463,6 +493,46 @@ if ($method === 'POST' && preg_match('#^/dashboard/jobs/([a-f0-9-]{36})/cancel$#
     }
 
     push_flash('flash', ['type' => 'success', 'message' => 'Job cancelled.']);
+    header('Location: /dashboard/jobs/' . urlencode($job->id));
+    exit;
+}
+
+if ($method === 'POST' && preg_match('#^/dashboard/jobs/([a-f0-9-]{36})/trigger$#i', $path, $matches) === 1) {
+    $authorization->ensureJobsAccess($user);
+    if (!$csrf->validate($_POST['_token'] ?? null)) {
+        http_response_code(419);
+        echo 'Invalid CSRF token.';
+        return;
+    }
+
+    $job = Job::findById($db, strtolower($matches[1]));
+    if (!$job instanceof Job) {
+        http_response_code(404);
+        echo 'Job not found.';
+        return;
+    }
+
+    $dispatcher = new JobDispatchService(
+        $db,
+        $secrets,
+        new JobExecutor(
+            $db,
+            new SshClient(),
+            (int) $config->get('queue.default_timeout', 300),
+            $activityLog
+        ),
+        $activityLog
+    );
+
+    try {
+        $dispatcher->dispatch($job, 'manual_trigger');
+    } catch (Throwable $exception) {
+        push_flash('flash', ['type' => 'error', 'message' => 'Direct trigger failed: ' . $exception->getMessage()]);
+        header('Location: /dashboard/jobs/' . urlencode($job->id));
+        exit;
+    }
+
+    push_flash('flash', ['type' => 'success', 'message' => 'Job triggered directly.']);
     header('Location: /dashboard/jobs/' . urlencode($job->id));
     exit;
 }

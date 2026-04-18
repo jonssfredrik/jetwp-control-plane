@@ -48,6 +48,13 @@ require __DIR__ . '/../_chrome.php';
                 </form>
             <?php endif; ?>
             <?php if ($job->status === 'pending'): ?>
+                <form method="post" action="/dashboard/jobs/<?= urlencode($job->id) ?>/trigger" class="inline">
+                    <input type="hidden" name="_token" value="<?= htmlspecialchars($csrf->token()) ?>">
+                    <button type="submit">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 3 14 9-14 9V3z"/></svg>
+                        Trigger Now
+                    </button>
+                </form>
                 <form method="post" action="/dashboard/jobs/<?= urlencode($job->id) ?>/cancel" class="inline">
                     <input type="hidden" name="_token" value="<?= htmlspecialchars($csrf->token()) ?>">
                     <button type="submit" class="danger">
