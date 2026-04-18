@@ -47,9 +47,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_workflow_runs_workflow
-        FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE,
-    CONSTRAINT fk_workflow_runs_site
-        FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
+        FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS workflow_run_steps (
@@ -66,9 +64,7 @@ CREATE TABLE IF NOT EXISTS workflow_run_steps (
     completed_at DATETIME DEFAULT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_workflow_run_steps_run
-        FOREIGN KEY (workflow_run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE,
-    CONSTRAINT fk_workflow_run_steps_job
-        FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE SET NULL
+        FOREIGN KEY (workflow_run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 ALTER TABLE workflows
