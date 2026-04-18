@@ -35,6 +35,7 @@ final class JobFactory
             'max_attempts' => $job->maxAttempts,
             'scheduled_at' => null,
             'created_by' => $createdBy,
+            'execution_strategy' => $job->executionStrategy,
         ]);
     }
 }

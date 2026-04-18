@@ -79,6 +79,18 @@ require __DIR__ . '/../_chrome.php';
             <div class="value" style="font-family:'JetBrains Mono',monospace;"><?= htmlspecialchars($job->attempts . ' / ' . $job->maxAttempts) ?></div>
         </article>
         <article class="panel">
+            <div class="label">Execution Strategy</div>
+            <div class="value"><?= htmlspecialchars($job->executionStrategy) ?></div>
+        </article>
+        <article class="panel">
+            <div class="label">Runner</div>
+            <div class="value"><?= htmlspecialchars($job->runnerType ?? 'Not claimed') ?></div>
+        </article>
+        <article class="panel">
+            <div class="label">Claimed</div>
+            <div class="value" style="font-family:'JetBrains Mono',monospace; font-size: 0.95rem;"><?= htmlspecialchars($job->claimedAt ?? 'Not claimed') ?></div>
+        </article>
+        <article class="panel">
             <div class="label">Scheduled</div>
             <div class="value" style="font-family:'JetBrains Mono',monospace; font-size: 0.95rem;"><?= htmlspecialchars($job->scheduledAt ?? 'Immediate') ?></div>
         </article>
@@ -93,6 +105,10 @@ require __DIR__ . '/../_chrome.php';
         <article class="panel">
             <div class="label">Duration</div>
             <div class="value"><?= htmlspecialchars($job->durationMs !== null ? $job->durationMs . ' ms' : 'N/A') ?></div>
+        </article>
+        <article class="panel">
+            <div class="label">Dispatch Reason</div>
+            <div class="value"><?= htmlspecialchars($job->dispatchReason ?? 'N/A') ?></div>
         </article>
     </div>
 

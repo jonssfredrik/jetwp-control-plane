@@ -50,7 +50,7 @@ final class Worker
 
     public function runOnce(): bool
     {
-        $job = Job::claimNextPending($this->db);
+        $job = Job::claimNextPendingForSsh($this->db);
         if (!$job instanceof Job) {
             return false;
         }

@@ -56,6 +56,11 @@ final class AgentApi
             return;
         }
 
+        if ($method === 'POST' && preg_match('#^/api/v1/sites/([a-f0-9-]{36})/jobs/claim$#i', $path, $matches) === 1) {
+            $this->claimPendingJob(strtolower($matches[1]));
+            return;
+        }
+
         if ($method === 'POST' && preg_match('#^/api/v1/sites/([a-f0-9-]{36})/job-result$#i', $path, $matches) === 1) {
             $this->storeJobResult(strtolower($matches[1]));
             return;
@@ -251,7 +256,10 @@ final class AgentApi
                 $this->nullableString($payload['php_version'] ?? null)
             );
             $this->db->commit();
-            $pendingJobs = Job::countPendingForSite($this->db, $site->id);
+            $pendingJobs = Job::countPendingForSite($this->db, $site->id, [
+                Job::STRATEGY_AGENT_ONLY,
+                Job::STRATEGY_AGENT_PREFERRED,
+            ]);
             $this->activityLog?->logAgentRequest($site->id, 'heartbeat.received', [
                 'payload_bytes' => strlen($rawBody),
                 'wp_version' => $this->nullableString($payload['wp_version'] ?? null),
@@ -280,7 +288,10 @@ final class AgentApi
     {
         $rawBody = $this->readOptionalRawBody();
         $site = $this->authenticateSiteRequest($siteId, $rawBody, 'jobs.pending');
-        $jobs = Job::pendingForSite($this->db, $site->id);
+        $jobs = Job::pendingForSite($this->db, $site->id, [
+            Job::STRATEGY_AGENT_ONLY,
+            Job::STRATEGY_AGENT_PREFERRED,
+        ]);
 
         $data = [];
         $jobIds = [];
@@ -301,6 +312,37 @@ final class AgentApi
         $this->respond([
             'status' => 'ok',
             'data' => $data,
+        ]);
+    }
+
+    private function claimPendingJob(string $siteId): void
+    {
+        $rawBody = $this->readOptionalRawBody();
+        $site = $this->authenticateSiteRequest($siteId, $rawBody, 'jobs.claim');
+        $job = Job::claimNextPendingForAgent($this->db, $site->id);
+
+        if (!$job instanceof Job) {
+            $this->activityLog?->logAgentRequest($site->id, 'jobs.claim.empty', []);
+            $this->respond([
+                'status' => 'ok',
+                'data' => null,
+            ]);
+        }
+
+        $this->activityLog?->logAgentRequest($site->id, 'jobs.claim.succeeded', [
+            'job_id' => $job->id,
+            'type' => $job->type,
+            'execution_strategy' => $job->executionStrategy,
+        ]);
+
+        $this->respond([
+            'status' => 'ok',
+            'data' => [
+                'job_id' => $job->id,
+                'type' => $job->type,
+                'params' => $this->formatJobParams($job->params),
+                'execution_strategy' => $job->executionStrategy,
+            ],
         ]);
     }
 

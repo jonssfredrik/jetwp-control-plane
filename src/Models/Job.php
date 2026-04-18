@@ -15,6 +15,11 @@ final class Job
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_FAILED = 'failed';
     public const STATUS_CANCELLED = 'cancelled';
+    public const STRATEGY_AGENT_ONLY = 'agent_only';
+    public const STRATEGY_AGENT_PREFERRED = 'agent_preferred';
+    public const STRATEGY_SSH_ONLY = 'ssh_only';
+    public const RUNNER_AGENT = 'agent';
+    public const RUNNER_SSH = 'ssh';
 
     private const VALID_STATUSES = [
         self::STATUS_PENDING,
@@ -28,6 +33,12 @@ final class Job
         self::STATUS_COMPLETED,
         self::STATUS_FAILED,
         self::STATUS_CANCELLED,
+    ];
+
+    private const VALID_STRATEGIES = [
+        self::STRATEGY_AGENT_ONLY,
+        self::STRATEGY_AGENT_PREFERRED,
+        self::STRATEGY_SSH_ONLY,
     ];
 
     public function __construct(
@@ -46,6 +57,10 @@ final class Job
         public readonly ?string $output,
         public readonly ?string $errorOutput,
         public readonly string $createdBy,
+        public readonly string $executionStrategy,
+        public readonly ?string $runnerType,
+        public readonly ?string $claimedAt,
+        public readonly ?string $dispatchReason,
         public readonly string $createdAt,
     ) {
     }
@@ -60,6 +75,10 @@ final class Job
         $maxAttempts = (int) ($attributes['max_attempts'] ?? 3);
         $scheduledAt = self::nullableString($attributes['scheduled_at'] ?? null);
         $createdBy = trim((string) ($attributes['created_by'] ?? 'manual'));
+        $executionStrategy = self::normalizeExecutionStrategy(
+            $attributes['execution_strategy'] ?? null,
+            $type
+        );
         $params = self::normalizeParams($attributes['params'] ?? null);
 
         if ($siteId === '' || $type === '') {
@@ -82,13 +101,17 @@ final class Job
             throw new InvalidArgumentException('created_by is required.');
         }
 
+        if (!in_array($executionStrategy, self::VALID_STRATEGIES, true)) {
+            throw new InvalidArgumentException('execution_strategy is invalid.');
+        }
+
         $id = trim((string) ($attributes['id'] ?? Uuid::v4()));
 
         $statement = $db->prepare(
             'INSERT INTO jobs (
-                id, site_id, type, params, status, priority, attempts, max_attempts, scheduled_at, created_by
+                id, site_id, type, params, status, priority, attempts, max_attempts, scheduled_at, created_by, execution_strategy
              ) VALUES (
-                :id, :site_id, :type, :params, :status, :priority, :attempts, :max_attempts, :scheduled_at, :created_by
+                :id, :site_id, :type, :params, :status, :priority, :attempts, :max_attempts, :scheduled_at, :created_by, :execution_strategy
              )'
         );
         $statement->execute([
@@ -102,6 +125,7 @@ final class Job
             'max_attempts' => $maxAttempts,
             'scheduled_at' => $scheduledAt,
             'created_by' => $createdBy,
+            'execution_strategy' => $executionStrategy,
         ]);
 
         return self::findById($db, $id);
@@ -166,24 +190,26 @@ final class Job
     /**
      * @return list<self>
      */
-    public static function pendingForSite(PDO $db, string $siteId): array
+    public static function pendingForSite(PDO $db, string $siteId, ?array $strategies = null): array
     {
         if ($siteId === '') {
             throw new InvalidArgumentException('site_id is required.');
         }
 
+        [$strategySql, $params] = self::strategyFilterSql($strategies);
         $statement = $db->prepare(
             'SELECT *
              FROM jobs
              WHERE site_id = :site_id
                AND status = :status
-               AND (scheduled_at IS NULL OR scheduled_at <= NOW())
-             ORDER BY priority DESC, created_at ASC'
+               AND (scheduled_at IS NULL OR scheduled_at <= NOW())'
+               . $strategySql .
+            ' ORDER BY priority DESC, created_at ASC'
         );
-        $statement->execute([
+        $statement->execute(array_merge([
             'site_id' => $siteId,
             'status' => self::STATUS_PENDING,
-        ]);
+        ], $params));
 
         $jobs = [];
         foreach ($statement->fetchAll() as $row) {
@@ -195,23 +221,25 @@ final class Job
         return $jobs;
     }
 
-    public static function countPendingForSite(PDO $db, string $siteId): int
+    public static function countPendingForSite(PDO $db, string $siteId, ?array $strategies = null): int
     {
         if ($siteId === '') {
             throw new InvalidArgumentException('site_id is required.');
         }
 
+        [$strategySql, $params] = self::strategyFilterSql($strategies);
         $statement = $db->prepare(
             'SELECT COUNT(*)
              FROM jobs
              WHERE site_id = :site_id
                AND status = :status
                AND (scheduled_at IS NULL OR scheduled_at <= NOW())'
+               . $strategySql
         );
-        $statement->execute([
+        $statement->execute(array_merge([
             'site_id' => $siteId,
             'status' => self::STATUS_PENDING,
-        ]);
+        ], $params));
 
         return (int) $statement->fetchColumn();
     }
@@ -318,49 +346,35 @@ final class Job
         return self::findById($db, $id);
     }
 
-    public static function claimNextPending(PDO $db): ?self
+    public static function claimNextPendingForSsh(PDO $db): ?self
     {
-        $db->beginTransaction();
+        return self::claimPendingByQuery(
+            $db,
+            'WHERE status = \'pending\'
+               AND (scheduled_at IS NULL OR scheduled_at <= NOW())
+               AND execution_strategy = \'' . self::STRATEGY_SSH_ONLY . '\'',
+            [],
+            self::RUNNER_SSH,
+            'ssh_worker'
+        );
+    }
 
-        try {
-            $statement = $db->query(
-                'SELECT id
-                 FROM jobs
-                 WHERE status = \'pending\'
-                   AND (scheduled_at IS NULL OR scheduled_at <= NOW())
-                 ORDER BY priority DESC, created_at ASC
-                 LIMIT 1
-                 FOR UPDATE'
-            );
-            $id = $statement->fetchColumn();
-
-            if (!is_string($id) || $id === '') {
-                $db->commit();
-                return null;
-            }
-
-            $update = $db->prepare(
-                'UPDATE jobs
-                 SET status = :status,
-                     started_at = NOW()
-                 WHERE id = :id'
-            );
-            $update->execute([
-                'status' => self::STATUS_RUNNING,
-                'id' => $id,
-            ]);
-
-            $job = self::findById($db, $id);
-            $db->commit();
-
-            return $job;
-        } catch (\Throwable $exception) {
-            if ($db->inTransaction()) {
-                $db->rollBack();
-            }
-
-            throw $exception;
+    public static function claimNextPendingForAgent(PDO $db, string $siteId): ?self
+    {
+        if ($siteId === '') {
+            throw new InvalidArgumentException('site_id is required.');
         }
+
+        return self::claimPendingByQuery(
+            $db,
+            'WHERE site_id = :site_id
+               AND status = \'pending\'
+               AND (scheduled_at IS NULL OR scheduled_at <= NOW())
+               AND execution_strategy IN (\'' . self::STRATEGY_AGENT_ONLY . '\', \'' . self::STRATEGY_AGENT_PREFERRED . '\')',
+            ['site_id' => $siteId],
+            self::RUNNER_AGENT,
+            'agent_poll'
+        );
     }
 
     public static function markCompleted(
@@ -422,7 +436,10 @@ final class Job
         $statement = $db->prepare(
             'UPDATE jobs
              SET status = :status,
-                 started_at = NULL
+                 started_at = NULL,
+                 runner_type = NULL,
+                 claimed_at = NULL,
+                 dispatch_reason = NULL
              WHERE id = :id'
         );
         $statement->execute([
@@ -452,7 +469,10 @@ final class Job
              SET status = :status,
                  started_at = NULL,
                  completed_at = NULL,
-                 scheduled_at = DATE_ADD(NOW(), INTERVAL :delay_seconds SECOND)
+                 scheduled_at = DATE_ADD(NOW(), INTERVAL :delay_seconds SECOND),
+                 runner_type = NULL,
+                 claimed_at = NULL,
+                 dispatch_reason = NULL
              WHERE id = :id'
         );
         $statement->bindValue('status', self::STATUS_PENDING);
@@ -479,6 +499,10 @@ final class Job
             'completed_at' => $this->completedAt,
             'duration_ms' => $this->durationMs,
             'created_by' => $this->createdBy,
+            'execution_strategy' => $this->executionStrategy,
+            'runner_type' => $this->runnerType,
+            'claimed_at' => $this->claimedAt,
+            'dispatch_reason' => $this->dispatchReason,
             'created_at' => $this->createdAt,
         ];
 
@@ -508,8 +532,20 @@ final class Job
             output: self::nullableString($row['output'] ?? null),
             errorOutput: self::nullableString($row['error_output'] ?? null),
             createdBy: (string) $row['created_by'],
+            executionStrategy: self::normalizeExecutionStrategy($row['execution_strategy'] ?? null, (string) $row['type']),
+            runnerType: self::nullableString($row['runner_type'] ?? null),
+            claimedAt: self::nullableString($row['claimed_at'] ?? null),
+            dispatchReason: self::nullableString($row['dispatch_reason'] ?? null),
             createdAt: (string) $row['created_at'],
         );
+    }
+
+    public static function defaultExecutionStrategyForType(string $type): string
+    {
+        return match ($type) {
+            'cache.flush', 'plugin.update' => self::STRATEGY_AGENT_ONLY,
+            default => self::STRATEGY_SSH_ONLY,
+        };
     }
 
     private static function nullableString(mixed $value): ?string
@@ -570,5 +606,101 @@ final class Job
         }
 
         return $params;
+    }
+
+    private static function normalizeExecutionStrategy(mixed $value, string $type): string
+    {
+        if (is_string($value) && in_array($value, self::VALID_STRATEGIES, true)) {
+            return $value;
+        }
+
+        return self::defaultExecutionStrategyForType($type);
+    }
+
+    /**
+     * @return array{0:string,1:array<string,string>}
+     */
+    private static function strategyFilterSql(?array $strategies): array
+    {
+        if ($strategies === null || $strategies === []) {
+            return ['', []];
+        }
+
+        $filtered = array_values(array_filter(
+            $strategies,
+            static fn (mixed $strategy): bool => is_string($strategy) && in_array($strategy, self::VALID_STRATEGIES, true)
+        ));
+
+        if ($filtered === []) {
+            return ['', []];
+        }
+
+        $placeholders = [];
+        $params = [];
+        foreach ($filtered as $index => $strategy) {
+            $key = 'strategy_' . $index;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $strategy;
+        }
+
+        return [' AND execution_strategy IN (' . implode(', ', $placeholders) . ')', $params];
+    }
+
+    /**
+     * @param array<string, scalar|null> $params
+     */
+    private static function claimPendingByQuery(
+        PDO $db,
+        string $whereSql,
+        array $params,
+        string $runnerType,
+        string $dispatchReason
+    ): ?self {
+        $db->beginTransaction();
+
+        try {
+            $statement = $db->prepare(
+                'SELECT id
+                 FROM jobs '
+                 . $whereSql .
+                ' ORDER BY priority DESC, created_at ASC
+                  LIMIT 1
+                  FOR UPDATE'
+            );
+            $statement->execute($params);
+            $id = $statement->fetchColumn();
+
+            if (!is_string($id) || $id === '') {
+                $db->commit();
+                return null;
+            }
+
+            $update = $db->prepare(
+                'UPDATE jobs
+                 SET status = :status,
+                     runner_type = :runner_type,
+                     claimed_at = NOW(),
+                     dispatch_reason = :dispatch_reason,
+                     started_at = NOW()
+                 WHERE id = :id'
+            );
+            $update->execute([
+                'status' => self::STATUS_RUNNING,
+                'runner_type' => $runnerType,
+                'dispatch_reason' => $dispatchReason,
+                'id' => $id,
+            ]);
+
+            $job = self::findById($db, $id);
+            $db->commit();
+
+            return $job;
+        } catch (\Throwable $exception) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+
+            throw $exception;
+        }
     }
 }

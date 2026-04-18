@@ -100,6 +100,7 @@ final class JobValidator
             'max_attempts' => 3,
             'scheduled_at' => $normalizedScheduledAt,
             'created_by' => 'manual',
+            'execution_strategy' => \JetWP\Control\Models\Job::defaultExecutionStrategyForType($type),
         ];
     }
 
